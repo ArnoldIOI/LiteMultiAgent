@@ -10,6 +10,9 @@ from datetime import datetime
 from supabase import create_client, Client
 import os
 import csv
+import dspy
+from dspy.predict.react import ReAct, Tool
+from litemultiagent.tools.registry import ToolRegistry
 
 _ = load_dotenv()
 
@@ -53,7 +56,7 @@ if url and key:
 class BaseAgent:
     def __init__(self, agent_name: str, system_prompt, agent_description, parameter_description, tools: List[Dict[str, Any]],
                  available_tools: Dict[str, callable],
-                 meta_data):
+                 meta_data, dspy_on=True):
         self.agent_name = agent_name
         self.tools = tools
         self.available_tools = available_tools
@@ -63,6 +66,31 @@ class BaseAgent:
         self.agent_description = agent_description
         self.parameter_description = parameter_description
         self.goal = None
+        if dspy_on:
+            logger.info("======Testing dspy======")
+            self._agent = self._build_agent()
+            self.dspy_on = dspy_on
+
+    def _build_agent(self) -> dspy.Module:
+        """Build the agent workflow using dspy
+           Can be expanded to build more complex workflows, using multiple signatures and modules
+        """
+        return dspy.ReAct(signature="goal -> result",
+                                 tools=[Tool(func=tool.func, name=tool.name, desc=tool.description, args=tool.parameters) for tool in ToolRegistry.get_all_tools().values()])
+
+    def _train_agent(self, data):
+        """tune prompt"""
+        pass
+
+    def _evalue_agent(self):
+        """evaluate the agent performance"""
+        pass
+
+    def _save_agent(self):
+        pass
+
+    def _load_agent(self):
+        pass
 
     def make_plan(self):
         # Initial message to guide the assistant
@@ -89,9 +117,14 @@ class BaseAgent:
         return plan
 
     def send_prompt(self, goal: str) -> str:
-        self.messages.append({"role": "user", "content": goal})
-        self.goal = goal
-        return self._send_completion_request(plan=goal, depth=0)
+        if self.dspy_on:
+            with dspy.settings.context(lm=dspy.LM('openai/gpt-4o-mini')):
+                res = self._agent(goal=goal).result
+            return res
+        else:
+            self.messages.append({"role": "user", "content": goal})
+            self.goal = goal
+            return self._send_completion_request(plan=goal, depth=0)
 
     def set_shared_config(self, shared_config):
         self.shared_config = shared_config
